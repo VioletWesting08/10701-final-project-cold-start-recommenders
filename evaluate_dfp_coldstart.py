@@ -1,4 +1,6 @@
 """
+Module for running the cold start algorithm and evaluating its results
+
 Usage example:
 
 python evaluate_dfp_coldstart.py \
@@ -14,13 +16,14 @@ python evaluate_dfp_coldstart.py \
 """
 
 import argparse
-import importlib
-from typing import Dict, List, Tuple
-
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import KFold
 import matplotlib.pyplot as plt
+from sklearn.model_selection import KFold
+from typing import Dict, List, Tuple
+
+from data_loader import load_movielens_100k
+from cold_start_dfp import DFPConfig, DFPRecommender
 
 
 def build_pure_cold_input(UP_test_full: pd.DataFrame) -> Tuple[pd.DataFrame, Dict[str, List[str]]]:
@@ -104,6 +107,9 @@ def eval_precision_recall_f1(
     UP_test_pred: pd.DataFrame,
     UP_test_input: pd.DataFrame,
 ) -> Tuple[float, float, float, int, int]:
+    """
+    Evaluates metrics on the model predictions
+    """
     test_mask = UP_test_input.isna() & UP_test_full.notna()
 
     if not test_mask.values.any():
@@ -138,49 +144,41 @@ def eval_precision_recall_f1(
 
 def main():
     parser = argparse.ArgumentParser()
+    
+    # Data loading parameters
     parser.add_argument("--ratings_path", type=str, required=True)
     parser.add_argument("--users_path", type=str, required=True)
 
     # DFP model hyperparameters
+    parser.add_argument("--n_clusters", type=int, default=64)
     parser.add_argument("--min_support", type=float, default=0.15)
     parser.add_argument("--theta", type=float, default=1.0)
     parser.add_argument("--phi", type=float, default=0.001)
     parser.add_argument("--ct", type=float, default=0.25)
     parser.add_argument("--max_itemset_len", type=int, default=None)
 
-    parser.add_argument("--n_clusters", type=int, default=64)
-
+    # K fold validation parameters
     parser.add_argument("--n_fold", type=int, default=10)
     parser.add_argument("--random_state", type=int, default=10701)
+
+    # What type of cold-start we are simulating
     parser.add_argument("--cold_mode", type=str, choices=["pure", "semi"], default="pure")
 
-    # for semi cold-start
+    # Parameters for semi cold-start
     parser.add_argument("--p_min", type=float, default=0.3)
     parser.add_argument("--p_max", type=float, default=0.9)
     parser.add_argument("--p_step", type=float, default=0.1)
 
     args = parser.parse_args()
 
-    module = importlib.import_module("cold_start_dfp")
-    DFPRecommender = module.DFPRecommender
-    DFPConfig = module.DFPConfig
-    load_movielens_100k = module.load_movielens_100k
-
-    # load data
+    # Load data
     UM, UP = load_movielens_100k(args.ratings_path, args.users_path)
     print(f"Loaded UM shape={UM.shape}, UP shape={UP.shape}")
-
     user_ids = np.array(UM.index)
     kf = KFold(n_splits=args.n_fold, shuffle=True, random_state=args.random_state)
     folds = list(kf.split(user_ids))
 
-    # p (semi mode only)
-    p_values = []
-    p_prec_means = []
-    p_rec_means = []
-    p_f1_means = []
-
-    # pure cold-start
+    # Pure cold-start
     if args.cold_mode == "pure":
         print("\n==================== PURE COLD-START ====================")
         fold_precisions = []
@@ -249,9 +247,13 @@ def main():
         print("====================================================\n")
         return
 
-    # semi cold-start: for different p
+    # Semi cold-start: for different p
     print("\n==================== SEMI COLD-START ====================")
     p_grid = np.arange(args.p_min, args.p_max + 1e-8, args.p_step)
+    p_values = []
+    p_prec_means = []
+    p_rec_means = []
+    p_f1_means = []
 
     for p in p_grid:
         p = float(np.round(p, 2))
