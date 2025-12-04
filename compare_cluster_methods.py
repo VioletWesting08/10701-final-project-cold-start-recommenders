@@ -1,3 +1,13 @@
+"""
+Script for comparing different clustering algorithms.
+
+Usage example:
+
+python compare_cluster_methods.py \
+  --ratings_path ml-100k/u.data \
+  --users_path ml-100k/u.user \
+  --cold_mode pure
+"""
 import argparse
 from typing import Dict, List, Tuple
 
