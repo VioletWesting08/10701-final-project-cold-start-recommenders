@@ -18,6 +18,7 @@ python cold_start_dfp.py \
 import argparse
 import json
 import pandas as pd
+import numpy as np
 from tqdm import tqdm
 from dataclasses import dataclass
 from typing import Dict, List, Set, Tuple, Optional
@@ -46,6 +47,9 @@ class DFPConfig:
     # The next configuration is used to tune how much a recommendation can conflict with prior preferences
     ct: float = 0.25
 
+    # This configuration decides whether we use the standard paper algorithm, or double clustering for warm users
+    double_clustering: bool = False
+
 
 class DFPRecommender:
     def __init__(self, cfg: DFPConfig):
@@ -58,6 +62,10 @@ class DFPRecommender:
         self.cluster_itemsets_: Dict[int, Dict[frozenset, float]] = {}  
         self.discriminant_itemsets_: Dict[int, List[Set]] = {}          
         self.items_: List = []
+        self.double_clustering: bool = cfg.double_clustering
+        self.UP_train_: Optional[pd.DataFrame] = None
+        self.cluster_users_: Dict[int, pd.Index] = {}
+        self.cluster_Rn_: Dict[int, Optional[np.ndarray]] = {}
     
 
     def fit(self, UM: pd.DataFrame, UP: pd.DataFrame):
@@ -72,17 +80,21 @@ class DFPRecommender:
         labels = km.fit_predict(UMc.values)
         self.km = km
         self.cluster_labels_ = pd.Series(labels, index=UMc.index, name="cluster")
+        self.UP_train_ = UP.copy()
 
         # Step 2 of the algorithm is to extract their frequent itemsets
         cluster_itemsets = {}
+        self.cluster_users_ = {}
+        self.cluster_Rn_ = {}
         for c in tqdm(range(cfg.n_clusters), leave=False, desc="Fitting Model"):
             # Prepare itemset
             users_c = self.cluster_labels_[self.cluster_labels_ == c].index
+            self.cluster_users_[c] = users_c
             if len(users_c) == 0:
                 cluster_itemsets[c] = {}
                 continue
-            sub = UP.loc[users_c, self.items_]
-            trans = (sub.fillna(0) == 1)
+            sub = UP.loc[users_c, self.items_].fillna(0)
+            trans = (sub == 1)
             trans = trans.loc[:, trans.any(axis=0)]
             trans = trans.astype(bool)
             if trans.shape[1] == 0:
@@ -98,6 +110,9 @@ class DFPRecommender:
             )
             itemsets = {frozenset(row['itemsets']): float(row['support']) for _, row in fis.iterrows()}
             cluster_itemsets[c] = itemsets
+
+            # Save each user in this cluster's normalised ratings
+            self.cluster_Rn_[c] = sub.to_numpy() / (np.linalg.norm(sub.to_numpy(), axis=1, keepdims=True) + 1e-8)
 
         # Step 3 of the algorithm is to then extract discriminant frequent itemsets
         self.cluster_itemsets_ = cluster_itemsets
@@ -150,6 +165,7 @@ class DFPRecommender:
             c = int(user2cluster.loc[u])
             discs = self.discriminant_itemsets_.get(c, [])
             row = UP_new.loc[u, self.items_]
+            r_u = row.fillna(0).to_numpy()
             is_cold = row.isna().all()
             rec_items = set()
             if is_cold:
@@ -159,8 +175,17 @@ class DFPRecommender:
                 for it in rec_items:
                     if it in row.index:
                         row.at[it] = 1
+            elif self.double_clustering and np.linalg.norm(r_u) > 0:
+                # Non-cold users: collaborative filtering over similar users
+                sims = self.cluster_Rn_.get(c) @ (r_u / np.linalg.norm(r_u))
+                sims = pd.Series(sims, index=self.cluster_users_.get(c, [])).drop(u, errors="ignore")
+                neigh_ratings = self.UP_train_.loc[sims.nlargest(20).index, self.items_].mean(axis=0, skipna=True)
+                for it, score in neigh_ratings.items():
+                    if pd.isna(row.at[it]) and score >= 0.5:
+                        row.at[it] = 1
+                        rec_items.add(it)
             else:
-                # Non-cold users also take into account conflicting preferences
+                # Non-cold users: take into account conflicting preferences
                 explicit_zero = set(row.index[(row == 0).values])
                 for S in discs:
                     conflicts = len(explicit_zero.intersection(S))
@@ -197,6 +222,7 @@ def main():
     parser.add_argument("--ct", type=float, default=0.25)
     parser.add_argument("--max_itemset_len", type=int, default=None)
     parser.add_argument("--out_prefix", type=str, default="dfp_out")
+    parser.add_argument("--double_clustering", action=argparse.BooleanOptionalAction)
     args = parser.parse_args()
 
     UM, UP = load_movielens_100k(args.ratings_path, args.users_path)
@@ -207,7 +233,8 @@ def main():
         theta=args.theta,
         phi=args.phi,
         ct=args.ct,
-        max_itemset_len=args.max_itemset_len
+        max_itemset_len=args.max_itemset_len,
+        double_clustering=args.double_clustering
     )
     model = DFPRecommender(cfg)
 

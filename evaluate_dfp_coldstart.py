@@ -156,6 +156,7 @@ def main():
     parser.add_argument("--phi", type=float, default=0.001)
     parser.add_argument("--ct", type=float, default=0.25)
     parser.add_argument("--max_itemset_len", type=int, default=None)
+    parser.add_argument("--double_clustering", action=argparse.BooleanOptionalAction)
 
     # K fold validation parameters
     parser.add_argument("--n_fold", type=int, default=10)
@@ -205,7 +206,8 @@ def main():
                 theta=args.theta,
                 phi=args.phi,
                 ct=args.ct,
-                max_itemset_len=args.max_itemset_len
+                max_itemset_len=args.max_itemset_len,
+                double_clustering=args.double_clustering
             )
             model = DFPRecommender(cfg)
             model.fit(UM_train, UP_train)
@@ -285,7 +287,8 @@ def main():
                 theta=args.theta,
                 phi=args.phi,
                 ct=args.ct,
-                max_itemset_len=args.max_itemset_len
+                max_itemset_len=args.max_itemset_len,
+                double_clustering=args.double_clustering
             )
             model = DFPRecommender(cfg)
             model.fit(UM_train, UP_train)
