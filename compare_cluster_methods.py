@@ -183,6 +183,29 @@ def run_semi_cold_for_method(
     return mean_prec, mean_rec, mean_f1, total_cells, total_pos_cells
 
 
+# def plot_method_comparison(
+#     methods: List[str],
+#     precisions: List[float],
+#     recalls: List[float],
+#     f1s: List[float],
+#     out_path: str,
+#     title: str,
+# ):
+#     x = np.arange(len(methods))
+#     width = 0.25
+
+#     plt.figure(figsize=(8, 5))
+#     plt.bar(x - width, precisions, width, label="Precision")
+#     plt.bar(x, recalls, width, label="Recall")
+#     plt.bar(x + width, f1s, width, label="F1")
+
+#     plt.xticks(x, methods)
+#     plt.ylabel("Score")
+#     plt.title(title)
+#     plt.legend()
+#     plt.tight_layout()
+#     plt.savefig(out_path, dpi=300)
+#     print(f"[INFO] Saved method comparison plot to: {out_path}")
 def plot_method_comparison(
     methods: List[str],
     precisions: List[float],
@@ -192,20 +215,24 @@ def plot_method_comparison(
     title: str,
 ):
     x = np.arange(len(methods))
-    width = 0.25
 
     plt.figure(figsize=(8, 5))
-    plt.bar(x - width, precisions, width, label="Precision")
-    plt.bar(x, recalls, width, label="Recall")
-    plt.bar(x + width, f1s, width, label="F1")
+
+    plt.plot(x, precisions, marker="o", label="Precision")
+    plt.plot(x, recalls,    marker="s", label="Recall")
+    plt.plot(x, f1s,        marker="^", label="F1")
 
     plt.xticks(x, methods)
+    plt.xlabel("Clustering method")
     plt.ylabel("Score")
     plt.title(title)
+
+    plt.grid(True, linestyle="--", alpha=0.5)
     plt.legend()
     plt.tight_layout()
     plt.savefig(out_path, dpi=300)
     print(f"[INFO] Saved method comparison plot to: {out_path}")
+
 
 
 def main():
